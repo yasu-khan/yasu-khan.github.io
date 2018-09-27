@@ -71,7 +71,7 @@ SQL> SELECT /*+ parallel(8) */ count( * )
 ```
 
 Pull the execution plan from the cursor using ```dbms_xplan``` along with ```ALLSTATS ALL``` option to get the aggregated statistics from all the parallel slaves and Query Co-ordinator. 	   
-```sql
+{% highlight sql %}
 SQL> select * from table(dbms_xplan.display_cursor(null,null,'ALLSTATS ALL'));
 
 PLAN_TABLE_OUTPUT
@@ -107,14 +107,14 @@ Predicate Information (identified by operation id):
 Note
 -----
    - Degree of Parallelism is 8 because of hint
-```
+{% endhighlight %}
 
 I have trimmed the execution plan output for pretty print. As per the execution plan Bloom filter got created at line id 6 for the joining ```COL1``` of table ```DIMENSION``` and the same Bloom filter got used at line id 8 for the ```FACT``` table. Further more if we look at the predicate section we could see a function ```SYS_OP_BLOOM_FILTER``` has been used when accessing ```FACT``` table at line id 10. This is where Bloom filter is getting used to filter the data from large ```FACT``` table before it could be processed with the HASH join. Actual rows column proves it that though ```FACT``` table is going for full table scan it has filtered down the records from 1 million down to just few 102 rows. But Bloom filter can provide false positive results and thus these false positive results has to be eliminated at later stage. Here when performing join between two sets at line id 5 false positive results will be verified. This concludes that though Bloom filters are efficient probalistic algorithm we need to have filter condition due to chances of false positive results. 
 
 In this case the usage of Bloom filter is based on join selectivity estimation along with the total amount of data to be processed. Thus if we want to skip these estimation for Bloom filter enabling/disabling purpose we can use the hints ```PX_JOIN_FILTER/NO_PX_JOIN_FILTER``` accordingly. But in some cases if we have very less amount of data to be processed and if we force usage of Bloom filter through hint ```PX_JOIN_FILTER``` then it may not work. 
 
 Let's check what overhead will be when we disable Bloom filter usage using hint ```NO_PX_JOIN_FILTER```.
-```sql
+{% highlight sql %}
 SQL> SELECT /*+ parallel(8) no_px_join_filter(FACT) */ count( * )
      FROM   FACT,
             DIMENSION
@@ -157,7 +157,7 @@ Predicate Information (identified by operation id):
 Note
 -----
    - Degree of Parallelism is 8 because of hint
-```
+{% endhighlight %}
 
 As per the execution we processed complete 1 million rows from table ```FACT``` without any filteration. This also increases the traffic between parallel query slaves causing direct increase in response time.   
 	   
@@ -202,7 +202,7 @@ PL/SQL procedure successfully completed.
 ```
 Now we need to disable Bloom partition pruning to observe Subquery partition pruning behaviour, but since we don't have any hint to disable this we need to set parameter ```"_bloom_pruning_enabled"``` to false.  
 
-```sql
+{% highlight sql %}
 SQL> alter session set "_bloom_pruning_enabled"=FALSE;
 
 Session altered.
@@ -242,11 +242,11 @@ Predicate Information (identified by operation id):
 ---------------------------------------------------
    2 - access("DIMENSION"."COL2"="FACT"."COL2")
    3 - filter("DIMENSION"."COL1"=1)
-```
+{% endhighlight %}
 
 The operation ```"PARTITION HASH SUBQUERY"``` at line id 5 says that subquery partition pruning has occurred on ```FACT``` table as shown by the value as ```"KEY(SQ)"``` for Pstart and Pstop. But in recent Oracle versions this behaviour has changed, Bloom partition pruning will be taking place wherever Subquery pruning is used. Let's reset this parameter ```"_bloom_pruning_enabled"``` to TRUE(Default value) and see how Bloom will be used for pruning partitions.
 
-```sql
+{% highlight sql %}
 SQL> alter session set "_bloom_pruning_enabled"=TRUE;
 
 Session altered.
@@ -287,7 +287,7 @@ Predicate Information (identified by operation id):
 ---------------------------------------------------
    2 - access("DIMENSION"."COL2"="FACT"."COL2")
    4 - filter("DIMENSION"."COL1"=1)
-```
+{% endhighlight %}
 
 In the above execution plan Bloom filter has been created at line id 3 based on the data returned by line id 4, by using this Bloom filter partition pruning on table ```FACT``` occurs(Bloom usgae in Pstart and Pstop) and hence only the partitions containing the relevant data is scanned. But when we check Pstart(1) and Pstop(40) columns it says all partitions(5 partitons * 8 subpartitions=40) of the ```FACT``` table have been scanned, intrestingly if you check Actual-Rows it is 750K but ```FACT``` table has 1 Million rows in total, this confirms Bloom filter was used for pruning subpartions though all the partitions have been scanned.     
 
@@ -305,7 +305,7 @@ SYS_OP_BLOOM_FILTER_LIST       YES
 ```
 
 Let's see how execution plan looks like in Exadata when Bloom filters are in use.
-```sql
+{% highlight sql %}
 SQL> SELECT count( * )
      FROM   FACT,
             DIMENSION
@@ -344,7 +344,7 @@ Predicate Information (identified by operation id):
        filter("DIMENSION"."COL1"=1)
    6 - storage(SYS_OP_BLOOM_FILTER(:BF0000,"FACT"."COL2"))
        filter(SYS_OP_BLOOM_FILTER(:BF0000,"FACT"."COL2"))
-```
+{% endhighlight %}
 
 In Exadata though it is serially executed Bloom filter were created and used. At line id 3 Bloom filter got created and used to filter the rows from FACT table at line id 5. In predicate section we see that Bloom function ```SYS_OP_BLOOM_FILTER``` is offloaded to cell server to futher reduce the data by filtering it in cell server. We can confirm how much data have been offloaded by measuring metrics through session level statistics. In principle Bloom filters existance in Exadata is dominant as it can be completly processed in cell server. 
 
